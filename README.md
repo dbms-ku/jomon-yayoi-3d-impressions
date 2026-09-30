@@ -1,1 +1,1 @@
-# jomon-yayoi-3d-impressions-jocch
+# jomon-yayoi-3d-impressions
