@@ -1,1 +1,2 @@
 # jomon-yayoi-3d-impressions
+The code accompanying our paper, "A 3D Point-Cloud Dataset of Prehistoric Pottery Impressions, with Size-Aware Classification and Denoising Baselines" (ACM Journal on Computing and Cultural Heritage), is currently being prepared for release. We will update this repository once it is available. If you have any questions in the meantime, please contact fukuda@st.cs.kumamoto-u.ac.jp.
