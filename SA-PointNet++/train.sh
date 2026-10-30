@@ -1,0 +1,3 @@
+python train_classification_baseline.py --log_dir 5class_pointnet2_16484 --num_category 5 --num_point 8192 --CSV_FILE data/experimental/metadata_exp_5.csv --model pointnet2_cls_ssg
+python train_classification_moments.py --log_dir 5class_pointnet2_moments_8192 --num_category 5 --num_point 8192 --CSV_FILE data/experimental/metadata_exp_5.csv --model pointnet2_cls_ssg_moments
+python train_classification_sa.py --log_dir 5class_pointnet2_size_8192 --num_category 5 --num_point 8192 --CSV_FILE data/experimental/metadata_exp_5.csv --model pointnet2_cls_ssg_size

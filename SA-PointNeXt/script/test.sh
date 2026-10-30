@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=0 python examples/classification/main.py --cfg SA-PointNeXt/cfgs/impression_jomon/pointnext-s.yaml mode=test --pretrained_path log/impression_size/8192_impression_size-train-pointnext-s-size_ckpt_best.pth dataloader.num_workers=0

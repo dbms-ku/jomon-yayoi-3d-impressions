@@ -1,0 +1,48 @@
+# cfgs/impression/default.yaml
+
+criterion_args:
+  NAME: SmoothCrossEntropy
+  label_smoothing: 0.2
+
+optimizer:
+  NAME: adamw
+  weight_decay: 0.05
+
+lr: 0.001
+sched: cosine
+epochs: 300
+warmup_epochs: 0
+
+batch_size: 16
+val_batch_size: 16
+
+num_classes: 5
+# num_points: 16484
+# num_points: 8192
+num_points: 4096
+
+dataset:
+  common:
+    NAME: ImpressionDataset
+    csv_file: data/metadata_exp_5.csv   # ← 実際のパスに変更
+    data_dir: ''
+    # num_points: 16484
+    num_points: 8192
+    # num_points: 4096
+  train:
+    split: train
+  val:
+    split: valid
+  test:
+    split: test
+
+dataloader:
+  num_workers: 4
+
+datatransforms:
+  train: ['PointsToTensor', 'PointCloudScaleAndTranslate']
+  val:   ['PointsToTensor']
+  kwargs:
+    shift: [0.2, 0.2, 0.2]
+
+feature_keys: pos

@@ -1,0 +1,270 @@
+"""Training script for the statistical-moment impression classifier.
+
+Adapted from train_classification.py in the PyTorch PointNet/PointNet++
+implementation by Xu Yan (yanx27/Pointnet_Pointnet2_pytorch, MIT License;
+original author credit: Benny, Nov 2019). This is the moment-based
+counterpart of train_classification_sa.py (paper Section 6.3, Table 5).
+Modifications for this project:
+
+  * the dataset loader is replaced with ImpressionDatasetMoments
+    (data_utils/impression_dataset_moments.py), which returns
+    (points, moment_feature, label, name) with the 12-dim statistical
+    moments computed before normalization,
+  * the model is built via get_model_moments(num_class, normal_channel,
+    moment_feature_dim=12) and its forward pass takes
+    (points, moment_feat), so --model must point to a moment-aware model
+    definition (pointnet2_cls_ssg_moments),
+  * model selection is performed on the 'valid' split each epoch,
+  * a --CSV_FILE argument specifies the split CSV and --data_path the
+    cache directory, and
+  * the checkpoint is saved as best_model.pth (the original used a
+    project-specific filename).
+
+Note: --process_data defaults to True (dataset caching always on), which
+reflects how the paper's experiments were run.
+
+All other training behavior is kept identical to the upstream script. Run
+from the root of the PointNet/PointNet++ framework so that `models/`,
+`provider.py`, and `data_utils/` are importable.
+
+Example (paper configuration):
+    python train_classification_moments.py \
+        --log_dir 5class_pointnet2_moments_8192 --num_category 5 \
+        --num_point 8192 --CSV_FILE data/experimental/metadata_exp_5.csv \
+        --model pointnet2_cls_ssg_moments
+"""
+
+import os
+import sys
+import torch
+import numpy as np
+
+import datetime
+import logging
+import provider
+import importlib
+import shutil
+import argparse
+
+from pathlib import Path
+from tqdm import tqdm
+from data_utils.impression_dataset_moments import ImpressionDatasetMoments
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = BASE_DIR
+sys.path.append(os.path.join(ROOT_DIR, 'models'))
+
+
+def parse_args():
+    '''PARAMETERS'''
+    parser = argparse.ArgumentParser('training')
+    parser.add_argument('--use_cpu', action='store_true', default=False, help='use cpu mode')
+    parser.add_argument('--gpu', type=str, default='0', help='specify gpu device')
+    parser.add_argument('--batch_size', type=int, default=32, help='batch size in training')
+    parser.add_argument('--model', default='pointnet2_cls_ssg_moments', help='moment-aware model name [default: pointnet2_cls_ssg_moments]')
+    parser.add_argument('--num_category', default=5, type=int, choices=[5, 10, 40], help='number of classes (5 for impressions)')
+    parser.add_argument('--epoch', default=300, type=int, help='number of epoch in training')
+    parser.add_argument('--learning_rate', default=0.001, type=float, help='learning rate in training')
+    parser.add_argument('--num_point', type=int, default=1024, help='Point Number')
+    parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer for training')
+    parser.add_argument('--log_dir', type=str, default=None, help='experiment root')
+    parser.add_argument('--decay_rate', type=float, default=1e-4, help='decay rate')
+    parser.add_argument('--use_normals', action='store_true', default=False, help='use normals')
+    parser.add_argument('--process_data', action='store_true', default=True, help='save data offline (effectively always on; see docstring)')
+    parser.add_argument('--use_uniform_sample', action='store_true', default=False, help='use uniform sampiling')
+    parser.add_argument('--CSV_FILE', type=str, required=True, help='data split file')
+    parser.add_argument('--data_path', type=str, default='data/experimental', help='root directory for the dataset cache')
+    parser.add_argument('--moment_feature_dim', type=int, default=12, help='dimension of the moment feature (12 = 4 moments x 3 axes)')
+    return parser.parse_args()
+
+
+def inplace_relu(m):
+    classname = m.__class__.__name__
+    if classname.find('ReLU') != -1:
+        m.inplace = True
+
+
+def test(model, loader, args, num_class=5):
+    mean_correct = []
+    class_acc = np.zeros((num_class, 3))
+    classifier = model.eval()
+
+    for j, (points, moment_feat, target, names) in tqdm(enumerate(loader), total=len(loader)):
+
+        if not args.use_cpu:
+            points, target = points.cuda(), target.cuda()
+            moment_feat = moment_feat.cuda()
+
+        points = points.transpose(2, 1)
+        pred, _ = classifier(points, moment_feat)
+        pred_choice = pred.data.max(1)[1]
+
+        for cat in np.unique(target.cpu()):
+            classacc = pred_choice[target == cat].eq(target[target == cat].long().data).cpu().sum()
+            class_acc[cat, 0] += classacc.item() / float(points[target == cat].size()[0])
+            class_acc[cat, 1] += 1
+
+        correct = pred_choice.eq(target.long().data).cpu().sum()
+        mean_correct.append(correct.item() / float(points.size()[0]))
+
+    class_acc[:, 2] = class_acc[:, 0] / class_acc[:, 1]
+    class_acc = np.mean(class_acc[:, 2])
+    instance_acc = np.mean(mean_correct)
+
+    return instance_acc, class_acc
+
+
+def main(args):
+    def log_string(str):
+        logger.info(str)
+        print(str)
+
+    '''HYPER PARAMETER'''
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+
+    '''CREATE DIR'''
+    timestr = str(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M'))
+    exp_dir = Path('./log/')
+    exp_dir.mkdir(exist_ok=True)
+    exp_dir = exp_dir.joinpath('classification')
+    exp_dir.mkdir(exist_ok=True)
+    if args.log_dir is None:
+        exp_dir = exp_dir.joinpath(timestr)
+    else:
+        exp_dir = exp_dir.joinpath(args.log_dir)
+    exp_dir.mkdir(exist_ok=True)
+    checkpoints_dir = exp_dir.joinpath('checkpoints/')
+    checkpoints_dir.mkdir(exist_ok=True)
+    log_dir = exp_dir.joinpath('logs/')
+    log_dir.mkdir(exist_ok=True)
+
+    '''LOG'''
+    logger = logging.getLogger("Model")
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler = logging.FileHandler('%s/%s.txt' % (log_dir, args.model))
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    log_string('PARAMETER ...')
+    log_string(args)
+
+    '''DATA LOADING'''
+    log_string('Load dataset ...')
+    data_path = args.data_path
+
+    train_dataset = ImpressionDatasetMoments(root=data_path, args=args, split='train', process_data=args.process_data)
+    val_dataset = ImpressionDatasetMoments(root=data_path, args=args, split='valid', process_data=args.process_data)
+    trainDataLoader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=10, drop_last=True)
+    valDataLoader = torch.utils.data.DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=10)
+
+    '''MODEL LOADING'''
+    log_string('Model Loading ...')
+    num_class = args.num_category
+    model = importlib.import_module(args.model)
+    shutil.copy('./models/%s.py' % args.model, str(exp_dir))
+    shutil.copy('models/pointnet2_utils.py', str(exp_dir))
+    shutil.copy(os.path.abspath(__file__), str(exp_dir))
+    shutil.copy('data_utils/impression_dataset_moments.py', str(exp_dir))
+
+    classifier = model.get_model_moments(num_class, normal_channel=args.use_normals, moment_feature_dim=args.moment_feature_dim)
+    criterion = model.get_loss()
+    classifier.apply(inplace_relu)
+
+    if not args.use_cpu:
+        classifier = classifier.cuda()
+        criterion = criterion.cuda()
+
+    try:
+        checkpoint = torch.load(str(exp_dir) + '/checkpoints/best_model.pth')
+        start_epoch = checkpoint['epoch']
+        classifier.load_state_dict(checkpoint['model_state_dict'])
+        log_string('Use pretrain model')
+    except Exception:
+        log_string('No existing model, starting training from scratch...')
+        start_epoch = 0
+
+    if args.optimizer == 'Adam':
+        optimizer = torch.optim.Adam(
+            classifier.parameters(),
+            lr=args.learning_rate,
+            betas=(0.9, 0.999),
+            eps=1e-08,
+            weight_decay=args.decay_rate
+        )
+    else:
+        optimizer = torch.optim.SGD(classifier.parameters(), lr=0.01, momentum=0.9)
+
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.7)
+    global_epoch = 0
+    global_step = 0
+    best_instance_acc = 0.0
+    best_class_acc = 0.0
+
+    '''TRANING'''
+    logger.info('Start training...')
+    for epoch in range(start_epoch, args.epoch):
+        log_string('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, args.epoch))
+        mean_correct = []
+        classifier = classifier.train()
+
+        scheduler.step()
+        for batch_id, (points, moment_feat, target, names) in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader), smoothing=0.9):
+            optimizer.zero_grad()
+
+            points = points.data.numpy()
+            points = provider.random_point_dropout(points)
+            points[:, :, 0:3] = provider.random_scale_point_cloud(points[:, :, 0:3])
+            points[:, :, 0:3] = provider.shift_point_cloud(points[:, :, 0:3])
+            points = torch.Tensor(points)
+            points = points.transpose(2, 1)
+
+            if not args.use_cpu:
+                points, target = points.cuda(), target.cuda()
+                moment_feat = moment_feat.cuda()
+
+            pred, trans_feat = classifier(points, moment_feat)
+            loss = criterion(pred, target.long(), trans_feat)
+            pred_choice = pred.data.max(1)[1]
+
+            correct = pred_choice.eq(target.long().data).cpu().sum()
+            mean_correct.append(correct.item() / float(points.size()[0]))
+            loss.backward()
+            optimizer.step()
+            global_step += 1
+
+        train_instance_acc = np.mean(mean_correct)
+        log_string('Train Instance Accuracy: %f' % train_instance_acc)
+
+        with torch.no_grad():
+            instance_acc, class_acc = test(classifier.eval(), valDataLoader, args, num_class=num_class)
+
+            if (instance_acc >= best_instance_acc):
+                best_instance_acc = instance_acc
+                best_epoch = epoch + 1
+
+            if (class_acc >= best_class_acc):
+                best_class_acc = class_acc
+            log_string('Validation Instance Accuracy: %f, Class Accuracy: %f' % (instance_acc, class_acc))
+            log_string('Best Instance Accuracy: %f, Class Accuracy: %f' % (best_instance_acc, best_class_acc))
+
+            if (instance_acc >= best_instance_acc):
+                logger.info('Save model...')
+                savepath = str(checkpoints_dir) + '/best_model.pth'
+                log_string('Saving at %s' % savepath)
+                state = {
+                    'epoch': best_epoch,
+                    'instance_acc': instance_acc,
+                    'class_acc': class_acc,
+                    'model_state_dict': classifier.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                }
+                torch.save(state, savepath)
+            global_epoch += 1
+
+    logger.info('End of training...')
+
+
+if __name__ == '__main__':
+    args = parse_args()
+    main(args)

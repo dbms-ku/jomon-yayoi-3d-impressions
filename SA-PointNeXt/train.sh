@@ -1,0 +1,2 @@
+CUDA_VISIBLE_DEVICES=0 python examples/classification/main.py --cfg cfgs/impression/pointnext-s.yaml
+CUDA_VISIBLE_DEVICES=0 python examples/classification/main.py --cfg cfgs/impression_size/pointnext-s-size.yaml
