@@ -74,12 +74,20 @@ If you use this dataset or code, please cite:
 <!-- TODO: add volume, number, articleno and doi once the JOCCH record is available -->
 
 ```bibtex
-@article{fukuda2026impressions,
-  author  = {Fukuda, Rio and Aritsugi, Masayoshi and Obata, Hiroki and Mendon{\c{c}}a, Israel},
-  title   = {A 3D Point-Cloud Dataset of Prehistoric Pottery Impressions, with Size-Aware Classification and Denoising Baselines},
-  journal = {ACM Journal on Computing and Cultural Heritage},
-  year    = {2026},
-  doi     = {10.1145/3859284}
+@article{10.1145/3859284,
+author = {Fukuda, Rio and Aritsugi, Masayoshi and Obata, Hiroki and Mendon{\c c}a, Israel},
+title = {A 3D Point-Cloud Dataset of Prehistoric Pottery Impressions, with Size-Aware Classification and Denoising Baselines},
+year = {2026},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+issn = {1556-4673},
+url = {https://doi.org/10.1145/3859284},
+doi = {10.1145/3859284},
+abstract = {Pottery excavated from Japan's J{\=o}mon-Yayoi period preserves impressions of seeds and insects that offer rare evidence of early agriculture and food storage, yet identifying the species that formed them is labor-intensive and demands scarce expert knowledge. We present a 3D point-cloud dataset of prehistoric pottery impressions, acquired non-destructively by X-ray CT and released as triangulated surface meshes. The dataset pairs clean laboratory replicas with genuine archaeological specimens across five species—four plant seeds and the maize weevil—together with a Noise-Pair subset of archaeological impressions and their expert-cleaned ground truth. Its defining challenges—classes that share shape but differ in archaeologically meaningful size, structured real-world noise, a built-in laboratory-to-archaeological domain gap, and limited, imbalanced samples—make it a demanding benchmark beyond its heritage context. We provide comprehensive baseline results spanning classical shape descriptors, point-cloud classification networks, and denoising methods. Among these, a size-aware baseline that reintroduces absolute bounding-box dimensions raises cross-domain accuracy on the archaeological data from 34.3\% to 71.1\% (Macro-F1 35.4\% to 61.6\%), and morphological denoising raises it further to 73.7\% (Macro-F1 66.0\%). The dataset and code are released publicly at  to support research in computational cultural heritage and 3D point-cloud learning.},
+note = {Just Accepted},
+journal = {J. Comput. Cult. Herit.},
+month = oct,
+keywords = {3D Point Cloud Dataset, Benchmark, Cultural Heritage, Pottery Impressions, Size-Aware Classification, Point Cloud Denoising}
 }
 ```
 
